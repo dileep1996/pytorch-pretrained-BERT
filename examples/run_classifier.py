@@ -482,8 +482,7 @@ def main():
             len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
 
     # Prepare model
-    model = BertForSequenceClassification.from_pretrained(args.bert_model, len(label_list),
-                cache_dir=None)
+    model = BertForSequenceClassification.from_pretrained(args.bert_model)
     if args.fp16:
         model.half()
     model.to(device)
