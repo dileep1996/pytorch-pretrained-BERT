@@ -621,6 +621,7 @@ def main():
 
             output_eval_file = os.path.join(args.output_dir, "eval_results.txt")
             print(result)
+            torch.save(model, 'checkpoint' + str(eval_accuracy))
 
 
 if __name__ == "__main__":
