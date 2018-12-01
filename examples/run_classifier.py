@@ -220,9 +220,9 @@ class OneCycleOptimizer(BertAdam):
             if self.curr< self.start:
                 self.dir = 1
         return lr_list / self.curr
-
-def find_lr(train_dataloader=train_dataloader, model=model, optim_func=BertAdam, min_lr=0.000001, max_lr=2,
-            device=device):
+'''
+def find_lr(train_dataloader, model, optim_func=BertAdam, min_lr=0.000001, max_lr=2,
+            device):
     lr_list = np.linspace(start=min_lr, stop=max_lr, num=len(train_dataloader))
     loss_list = []
     curr_loss = 0
@@ -248,7 +248,7 @@ def find_lr(train_dataloader=train_dataloader, model=model, optim_func=BertAdam,
     plt.plot(lr_list, loss_list)
     plt.show()
     return lr_list[np.argmin(loss_list)]
-
+'''
 
 def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer):
     """Loads a data file into a list of `InputBatch`s."""
