@@ -207,7 +207,7 @@ class OneCycleOptimizer(BertAdam):
         self.stop = stop
         self.curr = start
         self.incr = 2 * (stop - start)/steps
-        super(OneCycleOptimizer, self).__init__(params, defaults)
+        super(OneCycleOptimizer, self).__init__(params, **defaults)
 
     def get_lr(self):
         lr_list = self.bertadam.get_lr()
