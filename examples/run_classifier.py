@@ -196,7 +196,7 @@ class ColaProcessor(DataProcessor):
 class OneCycleOptimizer(BertAdam):
 
     def __init__(self, params, start, stop, warmup=-1, t_total=-1, schedule='warmup_linear',
-                 b1=0.9, b2=0.999, e=1e-6, weight_decay_rate=0.01, steps,
+                 b1=0.9, b2=0.999, e=1e-6, weight_decay_rate=0.01, steps = 200,
                  max_grad_norm=1.0):
         defaults = dict(lr=lr, schedule=schedule, warmup=warmup, t_total=t_total,
                         b1=b1, b2=b2, e=e, weight_decay_rate=weight_decay_rate,
