@@ -201,7 +201,7 @@ class OneCycleOptimizer(BertAdam):
         defaults = dict(lr=start, schedule=schedule, warmup=warmup, t_total=t_total,
                         b1=b1, b2=b2, e=e, weight_decay_rate=weight_decay_rate,
                         max_grad_norm=max_grad_norm)
-        self.bertadam = BertAdam(params,defaults)
+        self.bertadam = BertAdam(params, **defaults)
         self.dir = 1
         self.start = start
         self.stop = stop
