@@ -24,6 +24,7 @@ import logging
 import argparse
 import random
 from tqdm import tqdm, trange
+import matplotlib.pyplot as plt
 
 import numpy as np
 import torch
@@ -190,6 +191,63 @@ class ColaProcessor(DataProcessor):
             examples.append(
                 InputExample(guid=guid, text_a=text_a, text_b=None, label=label))
         return examples
+
+
+class OneCycleOptimizer(BertAdam):
+
+    def __init__(self, params, start, stop, warmup=-1, t_total=-1, schedule='warmup_linear',
+                 b1=0.9, b2=0.999, e=1e-6, weight_decay_rate=0.01, steps,
+                 max_grad_norm=1.0):
+        defaults = dict(lr=lr, schedule=schedule, warmup=warmup, t_total=t_total,
+                        b1=b1, b2=b2, e=e, weight_decay_rate=weight_decay_rate,
+                        max_grad_norm=max_grad_norm)
+        self.bertadam = BertAdam(params,defaults)
+        self.dir = 1
+        self.start = start
+        self.stop = stop
+        self.curr = start
+        self.incr = 2 * (stop - start)/steps
+        super(OneCycleOptimizer, self).__init__(params, defaults)
+
+    def get_lr(self):
+        lr_list = self.bertadam.get_lr()
+        if self.dir == 1:
+            self.curr += self.incr
+            if self.curr> self.stop:
+                self.dir = -1
+        elif self.dir == -1:
+            self.curr -= self.incr
+            if self.curr< self.start:
+                self.dir = 1
+        return lr_list / self.curr
+
+def find_lr(train_dataloader=train_dataloader, model=model, optim_func=BertAdam, min_lr=0.000001, max_lr=2,
+            device=device):
+    lr_list = np.linspace(start=min_lr, stop=max_lr, num=len(train_dataloader))
+    loss_list = []
+    curr_loss = 0
+    for step, batch in enumerate(tqdm(train_dataloader, total=len(train_dataloader), desc="Iteration", position=0)):
+        param_optimizer = [(n, param.clone().detach().to('cpu').float().requires_grad_()) \
+                           for n, param in model.named_parameters()]
+        no_decay = ['bias', 'gamma', 'beta']
+        optimizer_grouped_parameters = [
+            {
+                'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)],
+                'weight_decay_rate': 0.01},
+            {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay_rate': 0.0}
+        ]
+        optimizer = optim_func(optimizer_grouped_parameters, lr=lr_list[step])
+        batch = tuple(t.to(device) for t in batch)
+        input_ids, input_mask, segment_ids, label_ids = batch
+        loss, _ = model(input_ids, segment_ids, input_mask, label_ids)
+        loss.backward()
+        curr_loss += loss.item()
+        loss_list.append(curr_loss / (step + 1))
+        optimizer.step()
+        model.zero_grad()
+    plt.plot(lr_list, loss_list)
+    plt.show()
+    return lr_list[np.argmin(loss_list)]
 
 
 def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer):
@@ -423,6 +481,21 @@ def main():
     parser.add_argument('--loss_scale',
                         type=float, default=128,
                         help='Loss scaling, positive power of 2 values can improve fp16 convergence.')
+    parser.add_argument('--super_convergence',
+                        type=bool, default=False,
+                        help='Super Convergence, when enabled, updates lr in a way that convergence might be faster')
+    parser.add_argument('--start_lr',
+                        type=float,
+                        default=0.2,
+                        help="starting value for LR")
+    parser.add_argument('--stop_lr',
+                        type=float,
+                        default=0.2,
+                        help="stopping value for LR")
+    parser.add_argument('--steps',
+                        type=int,
+                        default=100,
+                        help="Number of steps for cycle")
 
     args = parser.parse_args()
 
@@ -546,6 +619,12 @@ def main():
         else:
             eval_sampler = DistributedSampler(eval_data)
         eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=args.eval_batch_size)
+
+        if args.super_convergence:
+            optimizer = OneCycleOptimizer(optimizer_grouped_parameters, warmup=args.warmup_proportion,
+                                          start= args.start_lr,
+                                          stop= args.stop_lr, steps = args.steps, t_total=num_train_steps)
+
 
         for _ in trange(int(args.num_train_epochs), desc="Epoch"):
             # Training model
