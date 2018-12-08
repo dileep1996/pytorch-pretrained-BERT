@@ -29,7 +29,8 @@ import shutil
 
 import torch
 from torch import nn
-from torch.nn import CrossEntropyLoss
+from torch.nn import CrossEntropyLoss, L1Loss
+from torch.autograd import Variable
 
 from .file_utils import cached_path
 
@@ -873,6 +874,82 @@ class BertForSequenceClassification(PreTrainedBertModel):
             return loss, logits
         else:
             return logits
+
+
+class BertForAnswerSelection(PreTrainedBertModel):
+    """BERT model for classification.
+    This module is composed of the BERT model with a linear layer on top of
+    the pooled output.
+
+    Params:
+        `config`: a BertConfig class instance with the configuration to build a new model.
+        `num_labels`: the number of classes for the classifier. Default = 2.
+
+    Inputs:
+        `input_ids`: a torch.LongTensor of shape [batch_size, sequence_length]
+            with the word token indices in the vocabulary(see the tokens preprocessing logic in the scripts
+            `extract_features.py`, `run_classifier.py` and `run_squad.py`)
+        `token_type_ids`: an optional torch.LongTensor of shape [batch_size, sequence_length] with the token
+            types indices selected in [0, 1]. Type 0 corresponds to a `sentence A` and type 1 corresponds to
+            a `sentence B` token (see BERT paper for more details).
+        `attention_mask`: an optional torch.LongTensor of shape [batch_size, sequence_length] with indices
+            selected in [0, 1]. It's a mask to be used if the input sequence length is smaller than the max
+            input sequence length in the current batch. It's the mask that we typically use for attention when
+            a batch has varying length sentences.
+        `labels`: labels for the classification output: torch.LongTensor of shape [batch_size]
+            with indices selected in [0, ..., num_labels].
+
+    Outputs:
+        if `labels` is not `None`:
+            Outputs the CrossEntropy classification loss of the output with the labels.
+        if `labels` is `None`:
+            Outputs the classification logits.
+
+    Example usage:
+    ```python
+    # Already been converted into WordPiece token ids
+    input_ids = torch.LongTensor([[31, 51, 99], [15, 5, 0]])
+    input_mask = torch.LongTensor([[1, 1, 1], [1, 1, 0]])
+    token_type_ids = torch.LongTensor([[0, 0, 1], [0, 2, 0]])
+    # Logits 1 is positive and 2 is negative
+    config = BertConfig(vocab_size=32000, hidden_size=512,
+        num_hidden_layers=8, num_attention_heads=6, intermediate_size=1024)
+
+    num_labels = 2
+
+    model = BertForAnswerSelection(config, num_labels)
+    logits = model(input_ids, token_type_ids, input_mask)
+    ```
+    """
+    def __init__(self, config, num_labels=2):
+        super(BertForAnswerSelection, self).__init__(config)
+        self.num_labels = num_labels
+        self.bert = BertModel(config)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        self.classifier = nn.Linear(config.hidden_size, num_labels)
+        self.apply(self.init_bert_weights)
+        self.margin = 5
+
+    def forward(self, input_ids1, input_ids2, token_type_ids1=None, attention_mask1=None, token_type_ids2=None,
+                attention_mask2=None):
+        _, pooled_output1 = self.bert(input_ids1, token_type_ids1, attention_mask1, output_all_encoded_layers=False)
+        _, pooled_output2 = self.bert(input_ids2, token_type_ids2, attention_mask2, output_all_encoded_layers=False)
+        pooled_output1 = self.dropout(pooled_output1)
+        pooled_output2 = self.dropout(pooled_output2)
+        logits1 = self.classifier(pooled_output1)
+        logits1 = logits1[:, 1] - logits1[:, 0]
+        logits2 = self.classifier(pooled_output2)
+        logits2 = logits2[:, 1] - logits2[:, 0]
+        criterion = torch.max(Variable(torch.zeros(logits1.size(0))), self.margin - logits1 + logits2)
+        err = torch.mead(criterion)
+        return err, logits1
+
+    def pos_forward(self, input_ids1, input_ids2, token_type_ids1=None, attention_mask1=None):
+        _, pooled_output1 = self.bert(input_ids1, token_type_ids1, attention_mask1, output_all_encoded_layers=False)
+        pooled_output1 = self.dropout(pooled_output1)
+        logits1 = self.classifier(pooled_output1)
+        logits1 = logits1[:, 1] - logits1[:, 0]
+        return logits1
 
 
 class BertForQuestionAnswering(PreTrainedBertModel):
